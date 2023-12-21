@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 
@@ -37,11 +38,15 @@ def get_figure(start_point, end_point, lat, lon, U, V):
     ax.scatter(start_point["coordinates"][1], start_point["coordinates"][0], marker='^', s=40, zorder=5)
     ax.set_xlabel('lon [deg]')
     ax.set_ylabel('lat [deg]')
+
     ax1, ax2, ax3, ax4, ax5 = ax, fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[1, 1]), fig.add_subplot(gs[2, 0]), fig.add_subplot(gs[2, 1])
     ax2.set_ylabel('reward')
     ax3.set_ylabel('flight time [s]')
     ax4.set_ylabel('altitude [ft]')
-    ax5.set_ylabel('mass [kg]')
-
+    ax4.set_xlabel('flight time [s]')
+    ax5.set_xlabel('Number of episodes')
+    ax4.plot()
+    ax5.set_ylabel('fuel used [kg]')
     ax4.set_facecolor('grey')
+
     return fig, ax1, ax2, ax3, ax4, ax5

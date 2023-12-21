@@ -47,28 +47,33 @@ def get_flight_performance(self):
     return CL/CD, mf_dot
 
 class Environment(gym.Env):
-    def __init__(self, n_inputs, n_actions, initial_dict, grid_dict):
+    def __init__(self, initial_dict, grid_dict):
         super(Environment, self).__init__()
 
         # Define observation space (state)
-        self.observation_space = gym.spaces.Discrete(n_inputs)
-        self.observation_space.n = n_inputs
         self.max_lat = grid_dict['max_lat']
         self.min_lat = grid_dict['min_lat']
         self.min_lon = grid_dict['min_lon']
         self.max_lon = grid_dict['max_lon']
+        self.grid_height = grid_dict['grid_height']
+        self.grid_width = grid_dict['grid_width']
+        self.grid_step = grid_dict['step']
+
+
         self.start_lat = initial_dict['start_coords'][0]
         self.start_lon = initial_dict['start_coords'][1]
         self.end_lat = initial_dict['end_coords'][0]
         self.end_lon = initial_dict['end_coords'][1]
+
         self.start_phi = initial_dict['initial_heading']
         self.start_alt = initial_dict['initial_alt']
         self.start_m = initial_dict['initial_m']
 
+        self.min_alt = initial_dict['min_alt']
+        self.max_alt = initial_dict['max_alt']
+        self.min_m = initial_dict['min_m']
+
         # Define action space (discrete changes in heading angle)
-        self.n_inputs = n_inputs
-        self.action_space = gym.spaces.Discrete(n_actions)
-        self.action_space.n = n_actions
         self.dx = grid_dict['dx']
         self.V_TAS = initial_dict['V_TAS']
 
@@ -93,16 +98,21 @@ class Environment(gym.Env):
         self.h = self.start_alt
         self.m = self.start_m
         self.flight_time = 0
+        self.lift_to_drag, self.mfdot = get_flight_performance(self)
+        self.init_ground_speed = get_ground_speed(self)
+        self.new_lift_to_drag, self.new_mf_dot = get_flight_performance(self)
+        self.ground_speed = get_ground_speed(self)
         self.done_status = False
         return self
 
-    def step(self, action):
+    def step(self, lateral_action, vertical_action):
+        self.init_ground_speed = get_ground_speed(self)
         # Update the trajectory angles
-        self.phi, self.delta_h = action
-
+        self.phi = lateral_action
+        self.delta_h = vertical_action
         self.gamma = self.delta_h*.0003048/self.dx
 
-        #get current ground speed for trajectory
+        #get current ground speed and flight_performance
         self.ground_speed = get_ground_speed(self)
 
         # Update the position
@@ -110,10 +120,12 @@ class Environment(gym.Env):
         self.lat = new_point.latitude
         self.lon = new_point.longitude
         self.h += self.delta_h
-        if self.h>max(h_levels):
-            self.h = max(h_levels)
-        if self.h<min(h_levels):
-            self.h = min(h_levels)
+
+        if self.h>self.max_alt:
+            self.h = self.max_alt
+
+        if self.h<self.min_alt:
+            self.h = self.min_alt
 
         # get current ground speed for trajectory
         self.av_ground_speed = (get_ground_speed(self) + self.ground_speed)/2
@@ -127,6 +139,7 @@ class Environment(gym.Env):
         #update mass and flight time
         self.m += -(self.mfdot/self.ground_speed)*self.dx*1000
         self.flight_time += self.dx*1000/self.av_ground_speed
+        self.new_lift_to_drag, self.new_mf_dot = get_flight_performance(self)
 
         # Check if the episode is done if the agent reaches the destination, reward positively
         terminal = self._is_terminal()
@@ -137,27 +150,40 @@ class Environment(gym.Env):
         self.done_status = done
 
         # Get reward based on if state is done or in progress
-        reward = self._get_reward()
-        return self, reward, done, terminal
+        lateral_reward = self._get_lateral_reward()
+        vertical_reward = self._get_vertical_reward()
+        if self.terminal_status:
+            lateral_reward += self._get_terminal_reward()
+
+        return self, lateral_reward, vertical_reward, done, terminal
 
     def _is_done(self):
         if self.lat > self.max_lat or self.lat < self.min_lat or self.lon > self.max_lon or self.lon < self.min_lon:
             return True
+
+        elif self.m < self.min_m:
+            return True
+
         else:
             return False
 
     def _is_terminal(self):
-        if self.dist_to_end < 200:
+        if self.dist_to_end < self.dx:
             return True
         else:
             return False
+    def _get_terminal_reward(self):
+        return int(1000*np.exp(-0.0001*(self.start_m - self.m -60000)))
 
-    def _get_reward(self):
+    def _get_lateral_reward(self):
         if self._is_done():
             return -1000
+        else:
+            return -1
 
-        elif self.terminal_status:
-            return min(int(1000*np.exp(-0.0001*(self.start_m - self.m -75000))),3000)
+    def _get_vertical_reward(self):
+        if self.new_lift_to_drag >= self.lift_to_drag and abs(self.gamma) > 0. and self.h <= self.max_alt:
+            return 1
 
         else:
             return -1
